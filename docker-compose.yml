@@ -1,0 +1,10 @@
+services:
+  weather-agent:
+    build: .
+    ports:
+      - "${PORT:-80}:80"
+    env_file:
+      - .env
+    environment:
+      PORT: 80
+    restart: unless-stopped
