@@ -3,9 +3,13 @@ import uuid
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
+from session_store import (
+    SessionStore,
+    build_llm_user_message,
+    update_session_from_turn,
+)
 from tools import get_weather
 
 load_dotenv()
@@ -18,7 +22,7 @@ SYSTEM_PROMPT = (
     "If the city is ambiguous, ask a brief clarifying question."
 )
 
-_checkpointer = MemorySaver()
+session_store = SessionStore()
 
 
 def create_weather_agent():
@@ -33,19 +37,23 @@ def create_weather_agent():
         llm,
         TOOLS,
         prompt=SYSTEM_PROMPT,
-        checkpointer=_checkpointer,
     )
 
 
-def invoke_agent(agent, message: str, thread_id: str):
-    return agent.invoke(
-        {"messages": [("user", message)]},
-        config={"configurable": {"thread_id": thread_id}},
-    )
+def invoke_agent(agent, message: str, thread_id: str) -> str:
+    session = session_store.get_or_create(thread_id)
+
+    llm_message = build_llm_user_message(session, message)
+
+    result = agent.invoke({"messages": [("user", llm_message)]})
+    reply = result["messages"][-1].content
+
+    update_session_from_turn(session, message, reply, result["messages"])
+    return reply
 
 
 def clear_session(thread_id: str) -> None:
-    _checkpointer.delete_thread(thread_id)
+    session_store.clear(thread_id)
 
 
 def main():
@@ -68,8 +76,7 @@ def main():
             print("Bye.")
             break
 
-        result = invoke_agent(agent, user_input, thread_id)
-        reply = result["messages"][-1].content
+        reply = invoke_agent(agent, user_input, thread_id)
         print(f"\nAgent: {reply}\n")
 
 

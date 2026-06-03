@@ -46,8 +46,7 @@ def chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail="Agent not ready")
 
     thread_id = request.thread_id or str(uuid.uuid4())
-    result = invoke_agent(agent, request.message, thread_id)
-    reply = result["messages"][-1].content
+    reply = invoke_agent(agent, request.message, thread_id)
     return ChatResponse(reply=reply, thread_id=thread_id)
 
 
