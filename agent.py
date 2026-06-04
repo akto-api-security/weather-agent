@@ -1,12 +1,10 @@
 import logging
 import os
-import time
 import uuid
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
 try:
     from langgraph.errors import GraphRecursionError
@@ -33,7 +31,6 @@ SYSTEM_PROMPT = (
     "If the city is ambiguous, ask a brief clarifying question."
 )
 
-MAX_RETRIES = 3
 LLM_TIMEOUT_SECONDS = 60
 
 session_store = SessionStore()
@@ -96,59 +93,29 @@ def extract_reply(result: dict) -> str:
     raise AgentError(502, "Agent returned no text response")
 
 
-def _is_retryable(exc: Exception) -> bool:
-    if isinstance(exc, (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)):
-        return True
-
-    status_code = getattr(exc, "status_code", None)
-    if isinstance(status_code, int) and status_code >= 500:
-        return True
-
-    message = str(exc).lower()
-    return any(
-        token in message
-        for token in ("timeout", "timed out", "connection", "temporarily unavailable", "rate limit")
-    )
-
-
 def invoke_agent(agent, message: str, thread_id: str) -> str:
     session = session_store.get_or_create(thread_id)
     llm_message = build_llm_user_message(session, message)
 
-    last_error: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            result = agent.invoke({"messages": [("user", llm_message)]})
-            reply = extract_reply(result)
-            update_session_from_turn(session, message, reply, result["messages"])
-            return reply
-        except AgentError:
-            raise
-        except GraphRecursionError as exc:
-            logger.warning("Agent recursion limit hit for thread %s", thread_id)
-            raise AgentError(
-                502,
-                "Agent took too many steps. Try a simpler question.",
-            ) from exc
-        except Exception as exc:
-            last_error = exc
-            if attempt < MAX_RETRIES and _is_retryable(exc):
-                delay = 0.5 * attempt
-                logger.warning(
-                    "Retryable agent error (attempt %s/%s): %s",
-                    attempt,
-                    MAX_RETRIES,
-                    exc,
-                )
-                time.sleep(delay)
-                continue
-            break
-
-    logger.exception("Agent invoke failed for thread %s", thread_id)
-    raise AgentError(
-        502,
-        "Weather agent is temporarily unavailable. Please try again.",
-    ) from last_error
+    try:
+        result = agent.invoke({"messages": [("user", llm_message)]})
+        reply = extract_reply(result)
+        update_session_from_turn(session, message, reply, result["messages"])
+        return reply
+    except AgentError:
+        raise
+    except GraphRecursionError as exc:
+        logger.warning("Agent recursion limit hit for thread %s", thread_id)
+        raise AgentError(
+            502,
+            "Agent took too many steps. Try a simpler question.",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Agent invoke failed for thread %s", thread_id)
+        raise AgentError(
+            502,
+            "Weather agent is temporarily unavailable. Please try again.",
+        ) from exc
 
 
 def clear_session(thread_id: str) -> None:
