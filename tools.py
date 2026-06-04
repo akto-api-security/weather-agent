@@ -18,7 +18,7 @@ def get_weather(city: str) -> str:
         )
         response.raise_for_status()
         data = response.json()
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
         return f"Could not fetch weather for {city}: {exc}"
 
     current = data["current_condition"][0]
