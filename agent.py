@@ -47,6 +47,7 @@ class AgentError(Exception):
 
 
 def create_weather_agent():
+    """Build a compiled LangGraph ReAct agent (langgraph.prebuilt.create_react_agent)."""
     llm = ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "openai.gpt-oss-20b"),
         api_key=os.environ["OPENAI_API_KEY"],

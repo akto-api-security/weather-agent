@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Session:
-    """Full conversation history — stored locally, never sent wholesale to the LLM."""
+    """App-level session data keyed by thread_id (not LangGraph checkpoint state)."""
 
     messages: list[dict[str, str]] = field(default_factory=list)
     mentioned_cities: list[str] = field(default_factory=list)
