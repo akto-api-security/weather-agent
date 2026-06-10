@@ -43,9 +43,9 @@ class AgentError(Exception):
         super().__init__(message)
 
 
-def create_weather_agent():
-    """Build a compiled LangGraph ReAct agent (langgraph.prebuilt.create_react_agent)."""
-    llm = ChatOpenAI(
+def create_llm() -> ChatOpenAI:
+    """Build the shared ChatOpenAI client (reused across requests)."""
+    return ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "openai.gpt-oss-20b"),
         api_key=os.environ["OPENAI_API_KEY"],
         base_url=os.environ["OPENAI_BASE_URL"],
@@ -54,8 +54,23 @@ def create_weather_agent():
         max_retries=0,
     )
 
+
+def create_weather_agent(llm: ChatOpenAI | None = None, session_id: str | None = None):
+    """Build a compiled LangGraph ReAct agent (langgraph.prebuilt.create_react_agent).
+
+    When session_id is set, it is sent as an x-session-id header on every LLM call so
+    the Akto gateway can apply session-based guardrails. Tools are bound before the
+    header binding because create_react_agent skips re-binding on pre-bound models.
+    """
+    if llm is None:
+        llm = create_llm()
+
+    model = llm.bind_tools(TOOLS)
+    if session_id:
+        model = model.bind(extra_headers={"x-session-id": session_id})
+
     return create_react_agent(
-        llm,
+        model,
         TOOLS,
         prompt=SYSTEM_PROMPT,
     )

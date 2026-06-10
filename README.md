@@ -119,6 +119,17 @@ curl -X DELETE http://localhost/sessions/abc-123
 
 With docker-compose, each container has its own `SessionStore`. For multiple replicas, use a shared store (e.g. Redis) or adopt a LangGraph checkpointer backed by Redis/Postgres if you want full graph state persistence.
 
+### Session-based guardrails (Akto gateway)
+
+When the caller sends an **`x-session-id`** header on `/chat`, it is forwarded on the LLM calls so the Akto gateway can apply session-based guardrails. If the caller omits the header, no session header is sent upstream:
+
+```bash
+curl -X POST http://localhost/chat \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: my-session-1" \
+  -d '{"message": "What is the weather in Paris?"}'
+```
+
 ## API
 
 | Method | Path | Description |
