@@ -138,8 +138,8 @@ def clear_session(thread_id: str) -> None:
 
 
 def main():
+    agent = create_weather_agent()
     thread_id = str(uuid.uuid4())
-    agent = create_weather_agent(session_id=thread_id)
 
     print("Weather agent (Bedrock Mantle). Type 'quit' to exit.")
     print(f"Session: {thread_id}\n")

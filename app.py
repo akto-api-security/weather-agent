@@ -70,10 +70,9 @@ def chat(
         raise HTTPException(status_code=503, detail="Agent not ready")
 
     thread_id = request.thread_id or str(uuid.uuid4())
-    # Forward the caller's session ID (falling back to the conversation thread_id) as
-    # x-session-id on LLM calls so the gateway can apply session-based guardrails.
-    session_id = x_session_id or thread_id
-    agent = create_weather_agent(llm, session_id=session_id)
+    # Forward the caller's x-session-id on LLM calls so the gateway can apply
+    # session-based guardrails. No header from the caller means none is sent upstream.
+    agent = create_weather_agent(llm, session_id=x_session_id)
     try:
         reply = invoke_agent(agent, request.message, thread_id)
     except AgentError:

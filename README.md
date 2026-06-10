@@ -121,7 +121,7 @@ With docker-compose, each container has its own `SessionStore`. For multiple rep
 
 ### Session-based guardrails (Akto gateway)
 
-Every LLM call carries an **`x-session-id`** header so the Akto gateway can apply session-based guardrails. The value is taken from the caller's `x-session-id` request header on `/chat`, falling back to the conversation `thread_id`:
+When the caller sends an **`x-session-id`** header on `/chat`, it is forwarded on the LLM calls so the Akto gateway can apply session-based guardrails. If the caller omits the header, no session header is sent upstream:
 
 ```bash
 curl -X POST http://localhost/chat \
