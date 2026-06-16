@@ -2,9 +2,10 @@ import logging
 import os
 import uuid
 
+from akto_middleware import AktoGuardrailsMiddleware
 from dotenv import load_dotenv
+from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
 
 try:
     from langgraph.errors import GraphRecursionError
@@ -25,13 +26,15 @@ logger = logging.getLogger(__name__)
 
 TOOLS = [get_weather]
 
+# Default for ap-south-1 Mantle agent tool-calling (nemotron-nano-9b-v2 often 500/503 here).
+DEFAULT_MODEL = "mistral.ministral-3-3b-instruct"
+DEFAULT_LLM_TIMEOUT_SECONDS = 90.0
+
 SYSTEM_PROMPT = (
     "You are a helpful weather assistant. "
     "Use the get_weather tool when the user asks about current weather in a city. "
     "If the city is ambiguous, ask a brief clarifying question."
 )
-
-LLM_TIMEOUT_SECONDS = 60
 
 session_store = SessionStore()
 
@@ -43,21 +46,40 @@ class AgentError(Exception):
         super().__init__(message)
 
 
+def _llm_timeout_seconds() -> float:
+    raw = os.getenv("LLM_TIMEOUT_SECONDS")
+    if raw is None:
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid LLM_TIMEOUT_SECONDS=%r, using %s", raw, DEFAULT_LLM_TIMEOUT_SECONDS)
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    if value <= 0:
+        logger.warning("LLM_TIMEOUT_SECONDS must be positive, using %s", DEFAULT_LLM_TIMEOUT_SECONDS)
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    return value
+
+
 def create_weather_agent():
-    """Build a compiled LangGraph ReAct agent (langgraph.prebuilt.create_react_agent)."""
+    """Build a standard LangChain agent with Akto guardrails middleware."""
+    model_name = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
+    os.environ.setdefault("LANGCHAIN_MODEL", model_name)
+
     llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "openai.gpt-oss-20b"),
+        model=model_name,
         api_key=os.environ["OPENAI_API_KEY"],
-        base_url=os.environ["OPENAI_BASE_URL"],
+        base_url=os.environ["OPENAI_BASE_URL"].strip().rstrip("/"),
         temperature=0,
-        timeout=LLM_TIMEOUT_SECONDS,
+        timeout=_llm_timeout_seconds(),
         max_retries=0,
     )
 
-    return create_react_agent(
+    return create_agent(
         llm,
         TOOLS,
-        prompt=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[AktoGuardrailsMiddleware()],
     )
 
 
@@ -103,6 +125,10 @@ def invoke_agent(agent, message: str, thread_id: str) -> str:
         update_session_from_turn(session, message, reply, result["messages"])
         return reply
     except AgentError:
+        raise
+    except ValueError as exc:
+        if "Blocked by Akto Guardrails" in str(exc):
+            raise AgentError(403, str(exc)) from exc
         raise
     except GraphRecursionError as exc:
         logger.warning("Agent recursion limit hit for thread %s", thread_id)

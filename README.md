@@ -2,7 +2,7 @@
 
 A **LangGraph** ReAct agent backed by Amazon Bedrock Mantle via its OpenAI-compatible API. It answers weather questions using a `get_weather` tool (powered by [wttr.in](https://wttr.in/)).
 
-LangChain is used only for primitives (`ChatOpenAI`, `@tool`). The agent loop is a compiled LangGraph from `langgraph.prebuilt.create_react_agent`.
+LangChain provides the agent factory (`create_agent`), model (`ChatOpenAI`), and tools (`@tool`). The agent loop is a compiled LangGraph graph; Akto guardrails plug in via `AktoGuardrailsMiddleware` when configured.
 
 ## Prerequisites
 
@@ -22,11 +22,40 @@ Create a `.env` file in the project root:
 ```env
 OPENAI_API_KEY=bedrock-api-key-***
 OPENAI_BASE_URL=https://bedrock-mantle.ap-south-1.api.aws/v1
-OPENAI_MODEL=openai.gpt-oss-20b
+OPENAI_MODEL=mistral.ministral-3-3b-instruct
 PORT=80
 ```
 
-Default model is `openai.gpt-oss-20b` — the cheapest Bedrock Mantle option (~$0.07/1M input, ~$0.30/1M output vs 2× for 120b).
+Defaults:
+
+- **Model:** `mistral.ministral-3-3b-instruct` — reliable for tool-calling in `ap-south-1` (override with `OPENAI_MODEL`).
+- **Region:** set `OPENAI_BASE_URL` to your Mantle region (e.g. `ap-south-1`).
+
+Other Mantle models for simple tool use (set `OPENAI_MODEL`):
+
+- `openai.gpt-oss-20b` — works with tool-calling in `ap-south-1`
+- `nvidia.nemotron-nano-9b-v2` — listed in `ap-south-1` but often returns 500/503 on agent tool calls
+
+List models in your region:
+
+```bash
+curl -s "$OPENAI_BASE_URL/models" -H "Authorization: Bearer $OPENAI_API_KEY" | jq '.data[].id'
+```
+
+`OPENAI_BASE_URL` must be Mantle (`https://bedrock-mantle.<region>.api.aws/v1`), not Bedrock Runtime (`.../openai/v1`).
+
+### Akto guardrails (optional)
+
+To validate prompts and ingest agent traffic into Akto, set:
+
+```env
+AKTO_DATA_INGESTION_URL=https://<YOUR_AKTO_INSTANCE_URL>
+AKTO_API_TOKEN=<optional-token>
+AKTO_SYNC_MODE=true
+AKTO_TIMEOUT=5
+```
+
+When `AKTO_DATA_INGESTION_URL` is set, the agent uses [Akto LangChain hooks](https://ai-security-docs.akto.io/akto-argus-agentic-ai-security-for-homegrown-ai/connectors/ai-agent-security/langchain) (`AktoGuardrailsMiddleware`) on every model call. With `AKTO_SYNC_MODE=true` (default), policy violations on **requests** (`before_model`) or **responses** (`after_model`) return HTTP 403 from `/chat`.
 
 ## Run locally (CLI)
 
@@ -76,6 +105,7 @@ docker compose down
 
 ```
 agent.py            # LangGraph agent factory, invoke logic, CLI
+akto_middleware.py  # Akto guardrails middleware (from Akto repo)
 app.py              # FastAPI HTTP server
 session_store.py    # In-memory sessions (not LangGraph checkpointing)
 tools.py            # Weather tool
@@ -87,7 +117,7 @@ requirements.txt
 ## How it works
 
 1. `ChatOpenAI` calls Bedrock Mantle at `/v1/chat/completions`.
-2. `create_react_agent` (LangGraph) runs a ReAct loop: the model may call tools, then answer.
+2. `create_agent` (LangChain/LangGraph) runs a ReAct loop: the model may call tools, then answer.
 3. `get_weather` fetches live data from wttr.in and returns a short summary.
 4. **Sessions** use an in-app `SessionStore` keyed by `thread_id`. Each HTTP/CLI turn invokes the graph with only the current user message; recent cities from prior turns are injected as short context. This is **not** LangGraph’s checkpointer — the graph does not persist message history across invokes.
 

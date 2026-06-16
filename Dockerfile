@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY agent.py app.py tools.py session_store.py ./
+COPY agent.py app.py tools.py session_store.py akto_middleware.py ./
 
 EXPOSE 80
 
